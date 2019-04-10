@@ -433,5 +433,16 @@ class SQAIRTimestep(AbstractTimstepModule):
 
         # extract temporal prop and prior states from prop outputs and append newly initialised states
         # for any discovered objects
+
+        # concat prop and disc outputs along the object axis, in that order
+       
+        # compute object ids based on ordering; discovered objects get new ids and propagated get the same as at the
+        # previous timestep
+        
+        # gather all variables that are to be shuffled according to presence: vars for present objects get shifted
+        # to the beginning and for absent ones to the end
+       
+        # merge, partition, split to avoid partitioning each vec separately
+       
   
         return None, None, None, None, None, None, None
