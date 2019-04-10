@@ -311,21 +311,7 @@ class AbstractTimstepModule(snt.AbstractModule):
     def _encode_latents(self, what, where, presence):
         """Encodes latent variables.
         """
-        inpts = tf.concat((what, where), -1)
-
-        if self._relation_embedding:
-            def combinations(tensor):
-                tensor = tf.split(tensor, self._n_steps, -2)
-                tensor = itertools.combinations(tensor, 2)
-                tensor = [tf.concat(t, -1) for t in tensor]
-                tensor = tf.concat(tensor, -2)
-                return tensor
-
-            inpts = combinations(inpts)
-            presence = tf.reduce_prod(combinations(presence), -1, keep_dims=True)
-
-        features = snt.BatchApply(self._latent_encoder)(inpts) * presence
-        return tf.reduce_sum(features, -2)
+        return None
 
 
 class PropagateOnlyTimestep(AbstractTimstepModule):
@@ -348,7 +334,14 @@ class PropagateOnlyTimestep(AbstractTimstepModule):
     def _build(self, img, z_tm1, temporal_hidden_state, prop_prior_state,
                time_step=0, sample_from_prior=False, do_generate=False):
 
-        return None
+        outputs = self._propagate(img, z_tm1, temporal_hidden_state, prop_prior_state,
+                                  sample_from_prior, do_generate)
+
+        outputs.z_t = (outputs.what, outputs.where, outputs.presence, outputs.presence_logit)
+        outputs.prop_prior_state = prop_prior_state
+        outputs.temporal_hidden_state = temporal_hidden_state
+        return outputs
+
 
 
 class SQAIRTimestep(AbstractTimstepModule):
