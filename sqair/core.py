@@ -110,7 +110,7 @@ class BaseSQAIRCore(snt.RNNCore):
     @classmethod
     def outputs_by_name(cls, hidden_outputs, stack=True):
         if stack:
-            hidden_outputs = nested.stack(hidden_outputs, axis=1)
+            hidden_outputs = nested.stack(hidden_outputs, axis = 1)
 
         d = orderedattrdict.AttrDict()
         for n, o in zip(cls._output_names, hidden_outputs):
@@ -129,16 +129,18 @@ class BaseSQAIRCore(snt.RNNCore):
         if hidden_state is None:
             hidden_state = self._cell.initial_state(batch_size, tf.float32, trainable=True)
 
-        where_code = tf.zeros([1, self._n_transform_param], dtype=tf.float32, name='where_init')
-        what_code = tf.zeros([1, self._n_what], dtype=tf.float32, name='what_init')
+        where_code = tf.zeros([1, self._n_transform_param], dtype = tf.float32, name = 'where_init')
+        what_code = tf.zeros([1, self._n_what], dtype = tf.float32, name = 'what_init')
 
         where_code, what_code = (tf.tile(i, (batch_size, 1)) for i in (where_code, what_code))
 
         flat_img = tf.reshape(img, (batch_size, self._n_pix))
-        init_presence = tf.ones((batch_size, 1), dtype=tf.float32) * self._init_presence_value
+        init_presence = tf.ones((batch_size, 1), dtype = tf.float32) * self._init_presence_value
+
         return [flat_img, what_code, where_code, init_presence, hidden_state]
 
     def _compute_presence(self, previous_presence, presence_logit, *features):
+        
         presence_distrib = self._steps_predictor(previous_presence, presence_logit, features)
         presence = presence_distrib.sample() * previous_presence
         return presence, presence_distrib.probs, presence_distrib.logits

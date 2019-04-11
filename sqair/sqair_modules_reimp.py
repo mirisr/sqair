@@ -263,6 +263,8 @@ class Propagate(BaseSQAIRModule):
         presence_tm1 = z_tm1[2]
 
         #call prior 
+        prior_stats, prior_rnn_hidden_state = self._prior(z_tm1, prior_state)
+
 
         #call ssm
 

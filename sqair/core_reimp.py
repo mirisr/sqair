@@ -232,11 +232,7 @@ class PropagationCore(BaseSQAIRCore):
 
     It is run iteratively to propagate several objects.
     """
-    _output_names = 'what what_sample what_loc what_scale where where_sample where_loc where_scale presence_prob' \
-                    ' presence presence_logit temporal_state'.split()
-
-    _init_presence_value = 0.  # at the beginning we assume no objects
-    _what_scale_bias = -3.
+  
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor, temporal_cell,
@@ -249,111 +245,22 @@ class PropagationCore(BaseSQAIRCore):
         :param where_update_scale: Float, rescales the update of the `where` variables.
         """
 
-        super(PropagationCore, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
-                                              glimpse_encoder, transform_estimator, steps_predictor,
-                                              debug=debug)
-
-        self._temporal_cell = temporal_cell
-        with self._enter_variable_scope():
-            self._where_update_scale = tf.get_variable('where_update_scale', shape=[], dtype=tf.float32,
-                                                       initializer=tf.constant_initializer(where_update_scale),
-                                                       trainable=False)
-            self._where_distrib = AffineDiagNormal(validate_args=self._debug, allow_nan_stats=not self._debug)
-
+       
     @property
     def output_size(self):
-        return [
-            self._n_what,  # what code
-            self._n_what,  # what sample
-            self._n_what,  # what loc
-            self._n_what,  # what scale
-            self._n_transform_param,  # where code
-            self._n_transform_param,  # where sample
-            self._n_transform_param,  # where loc
-            self._n_transform_param,  # where scale
-            1,  # presence prob
-            1,  # presence
-            1,  # presence_logit,
-            self._temporal_cell.state_size,
-        ]
-
+       
     def _build(self, (z_tm1, temporal_hidden_state), state):
         """Input is unused; it's only to force a maximum number of steps"""
         # same object, previous timestep
-        what_tm1, where_tm1, presence_tm1, presence_logit_tm1 = z_tm1
-        temporal_state = nest.flatten(temporal_hidden_state)[-1]
-
-        # different object, current timestep
-        img_flat, what_km1, where_km1, presence_km1, hidden_state = state
-
-        img = tf.reshape(img_flat, (-1,) + tuple(self._img_size))
-        with tf.variable_scope('rnn_inpt'):
-            where_bias = MLP(128, n_out=4)(temporal_state) * .1
-            what_distrib = self._glimpse_encoder(img, where_tm1 + where_bias, mask_inpt=temporal_state)[0]
-            rnn_inpt = what_distrib.loc
-
-            rnn_inpt = [
-                rnn_inpt,                                             # img
-                what_km1, where_km1, presence_km1,                    # explaining away
-                what_tm1, where_tm1, presence_tm1, temporal_state     # previous state
-            ]
-
-            rnn_inpt = tf.concat(rnn_inpt, -1)
-            hidden_output, hidden_state = self._cell(rnn_inpt, hidden_state)
-
-        with tf.variable_scope('where'):
-            where, where_sample, where_loc, where_scale = self._compute_where(where_tm1, hidden_output, temporal_state)
-
-        with tf.variable_scope('what'):
-            what, what_sample, what_loc, what_scale, temporal_hidden_state\
-                = self._compute_what(img, what_tm1, where, hidden_output, temporal_hidden_state, temporal_state)
-
-        with tf.variable_scope('presence'):
-            presence, presence_prob, presence_logit \
-                = self._compute_presence(presence_tm1, presence_logit_tm1, hidden_output, temporal_state, what)
-
-        output = [what, what_sample, what_loc, what_scale, where, where_sample, where_loc, where_scale,
-                  presence_prob, presence, presence_logit, temporal_hidden_state]
-        new_state = [img_flat, what, where, presence, hidden_state]
-
-        return output, new_state
+        
+        return None, None
 
     def _compute_where(self, where_tm1, hidden_output, temporal_state):
 
-        inpt = tf.concat((hidden_output, where_tm1, temporal_state), -1)
-        loc, scale = self._transform_estimator(inpt)
-
-        loc = where_tm1 + self._where_update_scale * loc
-        scale = tf.nn.softplus(scale - 1.) + 1e-2
-
-        where_distrib = self._where_distrib(loc, scale)
-        where_sample = where_distrib.sample()
-
-        where = where_sample
-        return where, where_sample, loc, scale
+        
+        return None, None, None
 
     def _compute_what(self, img, what_tm1, where, hidden_output, temporal_hidden_state, temporal_state):
-        what_distrib = self._glimpse_encoder(img, where, mask_inpt=temporal_state)[0]
-        loc, scale = what_distrib.loc, what_distrib.scale
+        
 
-        inpt = tf.concat((hidden_output, where, loc, scale), -1)
-        temporal_output, temporal_hidden_state = self._temporal_cell(inpt, temporal_hidden_state)
-
-        n_dim = int(what_tm1.shape[-1])
-        temporal_distrib = GaussianFromParamVec(n_dim)(temporal_output)
-
-        remember_bias = {'b': tf.constant_initializer(1.)}
-        gates = Nonlinear(n_dim * 3, tf.nn.sigmoid, remember_bias)(temporal_output)
-
-        gates *= .9999
-        forget_gate, input_gate, temporal_gate = tf.split(gates, 3, -1)
-
-        what_distrib = tfd.Normal(
-            loc=forget_gate * what_tm1 + (1. - input_gate) * loc + (1. - temporal_gate) * temporal_distrib.loc,
-            scale=(1. - input_gate) * scale + (1. - temporal_gate) * temporal_distrib.scale
-        )
-
-        what_sample = what_distrib.sample()
-        what = what_sample
-
-        return what, what_sample, what_distrib.loc, what_distrib.scale, temporal_hidden_state
+        return None, None, None, None, None

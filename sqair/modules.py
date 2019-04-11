@@ -470,7 +470,7 @@ class AIRDecoder(AIRGlimpse):
 class StepsPredictor(snt.AbstractModule):
     """Computes the probability logit for discovering or propagating an object."""
 
-    def __init__(self, n_hidden, steps_bias=0., max_rel_logit_change=np.inf, max_logit_change=np.inf, **kwargs):
+    def __init__(self, n_hidden, steps_bias=0., max_rel_logit_change = np.inf, max_logit_change =np.inf, **kwargs):
         """
 
         :param n_hidden:
