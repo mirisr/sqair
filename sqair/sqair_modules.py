@@ -268,10 +268,10 @@ class Propagate(BaseSQAIRModule):
                                                             do_generate=do_generate)
 
         outputs = orderedattrdict.AttrDict(
-            prior_stats=prior_stats,
-            prior_state=prior_state,
-            hidden_outputs=hidden_outputs,
-            num_steps=num_steps,
+            prior_stats = prior_stats,
+            prior_state = prior_state,
+            hidden_outputs = hidden_outputs,
+            num_steps = num_steps,
         )
 
         outputs.update(hidden_outputs)

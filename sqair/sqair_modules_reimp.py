@@ -1,4 +1,4 @@
-########################################################################################
+#######################################################################################
 # 
 # Sequential Attend, Infer, Repeat (SQAIR)
 # Copyright (C) 2018  Adam R. Kosiorek, Oxford Robotics Institute and
@@ -258,7 +258,20 @@ class Propagate(BaseSQAIRModule):
         :param do_generate: see Discovery class.
         :return: AttrDict of results.
         """
-        return None
+
+        #extract presence from z_tm1
+        presence_tm1 = z_tm1[2]
+
+        #call prior 
+
+        #call ssm
+
+        #compute log probs
+
+        #store results in outputs dictionary
+        outputs = orderedattrdict.AttrDict()
+
+        return outputs
 
     def _compute_log_probs(self, presence_tm1, hidden_outputs, prior_stats, delta_what,
                            delta_where, sample_from_prior=False, do_generate=False):
@@ -392,7 +405,28 @@ class SQAIRTimestep(AbstractTimstepModule):
         :return: AttrDict of results.
         """
 
-       return None
+        #get batch size
+        batch_size = int(img.shape[0])
+
+        #call propogate and discover
+        propogate_outputs, discover_outputs = self._propagate_and_discover(img, z_tm1, temporal_hidden_state, prop_prior_state,
+                                time_step, sample_from_prior, do_generate)
+
+        #call choose_latents
+        latents = self._choose_latents(batch_size, propogate_output, discover_output, highest_used_ids, prev_ids)
+
+        #store into orderedattrdict.AttrDict as "outputs"
+        outputs = 
+
+        #update the outputs with hidden outputs
+
+
+        #update number of steps
+
+
+        #return outputs
+
+        return None
 
     def _propagate_and_discover(self, img, z_tm1, temporal_hidden_state, prop_prior_state,
                                 time_step, sample_from_prior, do_generate):
@@ -400,6 +434,18 @@ class SQAIRTimestep(AbstractTimstepModule):
 
         :return: AttrDicts returned by propagation and discovery.
         """
+
+        # call propogate 
+
+        # encode returned latents to make conditional inputs for discovery   algorithm 3 line 4
+
+        # ...
+
+        # call discovery 
+
+
+
+
 
         return None, None
 

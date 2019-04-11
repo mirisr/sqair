@@ -65,60 +65,93 @@ class PropagatePrior(snt.AbstractModule):
         self._prop_logit_bias = prop_logit_bias
         self._where_loc_bias = where_loc_bias
 
-    def _build(self, z_tm1, prior_rnn_hidden_state):
+      def _build(self, z_tm1, prior_rnn_hidden_state):
         """Applies the op.
+
         :param z_tm1:
         :param prior_rnn_hidden_state:
         :return:
+        
         """
+
+        #latent variables from the step at time = t - 1
         what_tm1, where_tm1, presence_tm1 = z_tm1[:3]
 
+        #making input for the RNN by concat of latent where and what
         prior_rnn_inpt = tf.concat((what_tm1, where_tm1), -1)
         rnn = snt.BatchApply(self._cell)
 
+        #running RNN and getting the weights and hidden states that we will pass through the
+        # linear NN unit in order to get the values for parameters for propogation prior distribution
         outputs, prior_rnn_hidden_state = rnn(prior_rnn_inpt, prior_rnn_hidden_state)
+        #specifying the number of output weights for Linear NN Unit 
         n_outputs = 2 * (4 + self._n_what) + 1
+        #getting the parameters that we will use in order to 
+        #specify the parameters of propogation prior distributions for latent variables 'where', 'what' and 'presence'
         stats = snt.BatchApply(snt.Linear(n_outputs))(outputs)
 
+        #splitting the outputs from Linear NN Unit into  num_images * 1 vector for prop_prob_logit,
+        #which are the parameters for Bernoulli prior distribution for latent 'presence'
+        #and num_images * n_outputs - 1 vector for stats that will be used for
+        # 'what' and 'where' latent variables
         prop_prob_logit, stats = tf.split(stats, [1, n_outputs - 1], -1)
+        #updating parameters for Bernoulli prior distribution for latent 'presence'
+        #by adding bias(some specidied hyperparameter)
         prop_prob_logit += self._prop_logit_bias
+        #updating parameters for Bernoulli prior distribution for latent 'presence'
+        #by applying sigma function
         prop_prob_logit = presence_tm1 * prop_prob_logit + (presence_tm1 - 1.) * 88.
 
+        #splitting stats in order to get parameters (mean or locs, st deviation or scale)
+        #for factorized Gaussian distribution for
+        # latent variables 'where' and 'what'    
         locs, scales = tf.split(stats, 2, -1)
+        #splitting mean or loc parameter into
+        # mean or loc for 'what' and 'where' latent variables separately
         prior_where_loc, prior_what_loc = tf.split(locs, [4, self._n_what], -1)
+        #splitting scale or standard deviation parameter into
+        #scale or standard deviation for 'what' and 'where' latent variables separately
         prior_where_scale, prior_what_scale = tf.split(scales, [4, self._n_what], -1)
+        #making sure that standard deviation is positive and not equal to 0
         prior_where_scale, prior_what_scale = (tf.nn.softplus(i) + 1e-2 for i in (prior_where_scale, prior_what_scale))
 
+        # adding bias for 'where' latent variable mean or loc parameter
+        #for Gaussian distribution if there must exist one
         if self._where_loc_bias is not None:
             bias = np.asarray(self._where_loc_bias).reshape((1, 4))
             prior_where_loc += bias
-
+        #putting all parameters for propagation prior distribution together       
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
+
         return prior_stats, prior_rnn_hidden_state
 
 
     def initial_state(self, batch_size, trainable=True, initializer=None):
-        
         if initializer is not None and not isinstance(initializer, collections.Sequence):
             state_size = self._cell.state_size
             flat_state_size = nest.flatten(state_size)
             initializer = [initializer] * len(flat_state_size)
             initializer = nest.pack_sequence_as(state_size, initializer)
 
+        
+        #making initial state for the RNN that is used in propagation prior to compute distribution parameters
         init_state = self._cell.initial_state(batch_size, tf.float32,
                                               trainable=trainable,
                                               trainable_initializers=initializer)
 
         return init_state
 
+
     def make_distribs(self, (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)):
         """Converts parameters return by `_build` into probability distributions.
         """
+
         what_prior = Normal(prior_what_loc, prior_what_scale)
         where_prior = Normal(prior_where_loc, prior_where_scale)
         prop_prior = Bernoulli(logits=tf.squeeze(prop_prob_logit, -1))
 
         return what_prior, where_prior, prop_prior
+
 
 
 class RandomWalkPropagatePrior(PropagatePrior):
