@@ -232,6 +232,13 @@ class PropagationCore(BaseSQAIRCore):
 
     It is run iteratively to propagate several objects.
     """
+
+
+    _output_names = 'what what_sample what_loc what_scale where where_sample where_loc where_scale presence_prob' \
+                    ' presence presence_logit temporal_state'.split()
+
+    _init_presence_value = 0.  # at the beginning we assume no objects
+    _what_scale_bias = -3.
   
 
     def __init__(self, img_size, crop_size, n_what,
@@ -244,10 +251,42 @@ class PropagationCore(BaseSQAIRCore):
         :param temporal_cell: RNNCore for the temporal rnn.
         :param where_update_scale: Float, rescales the update of the `where` variables.
         """
+        #inhereting from BaseSQAIRCore
+        super(PropagationCore, self).__init__(img_size, crop_size, n_what,
+                 transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor, debug = debug)
 
-       
+        #adding temporal RNN which we get as input parameter
+        self._temporal_cell = temporal_cell 
+
+        with tf._enter_variable_scope():
+            #getting st deviation for where latent variable distribution
+            self._where_update_scale = tf.get_variable('where_update_scale', shape[], dtype = tf.float32, 
+                initializer = tf.constant_initializer(where_update_scale), trainable = False)
+
+
+            #specifying distribution for where latent variables
+            self._where_distrib = AffineDiagNormal()
+
+
+
+
+      
     @property
     def output_size(self):
+        return [
+            self._n_what,  # what code
+            self._n_what,  # what sample
+            self._n_what,  # what loc
+            self._n_what,  # what scale
+            self._n_transform_param,  # where code
+            self._n_transform_param,  # where sample
+            self._n_transform_param,  # where loc
+            self._n_transform_param,  # where scale
+            1,  # presence prob
+            1,  # presence
+            1,  # presence_logit,
+            self._temporal_cell.state_size,
+        ]
        
     def _build(self, (z_tm1, temporal_hidden_state), state):
         """Input is unused; it's only to force a maximum number of steps"""

@@ -260,7 +260,7 @@ class PropagationCore(BaseSQAIRCore):
             self._where_update_scale = tf.get_variable('where_update_scale', shape=[], dtype=tf.float32,
                                                        initializer=tf.constant_initializer(where_update_scale),
                                                        trainable=False)
-            self._where_distrib = AffineDiagNormal(validate_args=self._debug, allow_nan_stats=not self._debug)
+            self._where_distrib = AffineDiagNormal(validate_args = self._debug, allow_nan_stats = not self._debug)
 
     @property
     def output_size(self):
