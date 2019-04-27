@@ -177,6 +177,7 @@ class SequentialSSM(snt.AbstractModule):
         hidden_outputs = self._cell.outputs_by_name(hidden_outputs)
 
         delta_what, delta_where = hidden_outputs.what_sample, hidden_outputs.where_sample
+        
         del hidden_outputs.what_sample
         del hidden_outputs.where_sample
 

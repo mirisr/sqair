@@ -120,6 +120,7 @@ class PropagatePrior(snt.AbstractModule):
         if self._where_loc_bias is not None:
             bias = np.asarray(self._where_loc_bias).reshape((1, 4))
             prior_where_loc += bias
+            
         #putting all parameters for propagation prior distribution together       
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
 
@@ -201,14 +202,18 @@ class SequentialSSM(snt.AbstractModule):
 
     def _build(self, img, z_tm1, temporal_hidden_state):
 
+        #initializing the state for image
         initial_state = self._cell.initial_state(img)
-        unstacked_z_tm1 = zip(*[tf.unstack(z, axis=-2) for z in z_tm1])
-        unstacked_temp_state = tf.unstack(temporal_hidden_state, axis=-2)
-        inpt = zip(unstacked_z_tm1, unstacked_temp_state)
 
+        unstacked_z_tm1 = zip(*[tf.unstack(z, axis=-2) for z in z_tm1])
+ 
+        unstacked_temp_state = tf.unstack(temporal_hidden_state, axis=-2)
+        #making input to Propogation RNN 
+        inpt = zip(unstacked_z_tm1, unstacked_temp_state)
+        #getting the outputs from the Propogation RNN
         hidden_outputs, hidden_state = tf.nn.static_rnn(self._cell, inpt, initial_state)
         hidden_outputs = self._cell.outputs_by_name(hidden_outputs)
-
+        #getting what, where fron RNN
         delta_what, delta_where = hidden_outputs.what_sample, hidden_outputs.where_sample
         del hidden_outputs.what_sample
         del hidden_outputs.where_sample
@@ -222,6 +227,7 @@ class SequentialSSM(snt.AbstractModule):
         """
 
         with tf.variable_scope('temporal_to_step_hidden_state'):
+
             flat_hidden_state = tf.concat(nest.flatten(temporal_hidden_state), -1)
             state_size = self._cell.state_size[-1]
             flat_state_size = sum([int(s) for s in state_size])

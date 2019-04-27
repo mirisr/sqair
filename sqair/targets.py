@@ -42,6 +42,10 @@ def iwae(log_weights):
     k_particles = log_weights.shape.as_list()[-1]
     return tf.reduce_logsumexp(log_weights, -1) - math.log(float(k_particles))
 
+def dreg(log_weights):
+    
+    ws = tf.stop_gradient((tf.nn.softmax(log_weights, -1)))
+    return tf.reduce_sum(ws**2.0 * log_weights, -1)
 
 def vimco_control_variate(target_per_particle):
     """Computes VIMCO control variates for the given targets

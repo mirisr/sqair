@@ -60,7 +60,7 @@ flags.DEFINE_float('eval_size_fraction', 1., 'Fraction of the dataset to perform
 flags.DEFINE_string('opt', 'rmsprop', 'Optimizer; choose from rmsprop, adam, sgd, momentum')
 flags.DEFINE_float('learning_rate', 1e-5, 'Initial values of the learning rate')
 flags.DEFINE_float('l2', 0.0, 'Weight for the l2 regularisation of parameters')
-flags.DEFINE_string('schedule', '4,6,10', 'Uses a learning rate schedule if True. Schedule = \'4,6,10\' '
+flags.DEFINE_string('schedule', '4, 6, 10', 'Uses a learning rate schedule if True. Schedule = \'4,6,10\' '
                                            'means that F.train_itr will be split in proportions 4/s, 6/s, 10/s,'
                                            'where s = sum(schedule)')
 
@@ -173,7 +173,11 @@ all_summaries = tf.summary.merge_all()
 
 # Setup hearbeat reports
 report = [target, model.normalised_elbo_iwae, model.num_steps, model.num_step_accuracy, tf.shape(data_dict.train_img)[0]]
+#report = [target, model.normalised_dreg_iwae, model.num_steps, model.num_step_accuracy, tf.shape(data_dict.train_img)[0]]
+
 names = 'target iwae num_steps num_step_acc seq_len'.split()
+#names = 'target dreg num_steps num_step_acc seq_len'.split()
+
 report = {k: v for k, v in zip(names, report)}
 maybe_report = 'num_disc_steps num_prop_steps'.split()
 
