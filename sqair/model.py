@@ -97,6 +97,16 @@ class Model(object):
         tf.summary.scalar('normalised_vae', self.normalised_elbo_vae)
         tf.summary.scalar('normalised_iwae', self.normalised_elbo_iwae)
 
+        #dreg
+        self.elbo_dreg_per_example = targets.dreg(self.log_weights)
+        self.elbo_dreg = tf.reduce_mean(self.elbo_dreg_per_example)
+        self.normalised_elbo_dreg = self.elbo_dreg / tf.to_float(self.n_timesteps)
+        tf.summary.scalar('normalised_dreg', self.normalised_elbo_iwae)
+
+
+
+
+
         self.importance_weights = tf.stop_gradient(tf.nn.softmax(self.log_weights, -1))
         self.ess = ops.ess(self.importance_weights, average=True)
         self.iw_distrib = tf.distributions.Categorical(probs=self.importance_weights)
@@ -147,11 +157,14 @@ class Model(object):
         except AttributeError:
             pass
 
-    def make_target(self, opt, n_train_itr=None, l2_reg=0.):
+    def make_target(self, opt, n_train_itr=None, l2_reg=0., dreg = False):
 
         if hasattr(self, 'discrete_log_prob'):
             log_probs = tf.reduce_sum(self.discrete_log_prob, 0)
-            target = targets.vimco(self.log_weights, log_probs, self.elbo_iwae_per_example)
+            if(dreg):
+                target = targets.vimco(self.log_weights, log_probs, self.elbo_dreg_per_example)
+            else:
+
         else:
             target = -self.elbo_iwae
 

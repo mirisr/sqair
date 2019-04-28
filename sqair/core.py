@@ -289,7 +289,9 @@ class PropagationCore(BaseSQAIRCore):
         img_flat, what_km1, where_km1, presence_km1, hidden_state = state
 
         img = tf.reshape(img_flat, (-1,) + tuple(self._img_size))
+
         with tf.variable_scope('rnn_inpt'):
+
             where_bias = MLP(128, n_out=4)(temporal_state) * .1
             what_distrib = self._glimpse_encoder(img, where_tm1 + where_bias, mask_inpt=temporal_state)[0]
             rnn_inpt = what_distrib.loc
@@ -335,10 +337,13 @@ class PropagationCore(BaseSQAIRCore):
         return where, where_sample, loc, scale
 
     def _compute_what(self, img, what_tm1, where, hidden_output, temporal_hidden_state, temporal_state):
+
         what_distrib = self._glimpse_encoder(img, where, mask_inpt=temporal_state)[0]
+
         loc, scale = what_distrib.loc, what_distrib.scale
 
         inpt = tf.concat((hidden_output, where, loc, scale), -1)
+        
         temporal_output, temporal_hidden_state = self._temporal_cell(inpt, temporal_hidden_state)
 
         n_dim = int(what_tm1.shape[-1])

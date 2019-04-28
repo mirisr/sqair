@@ -56,6 +56,10 @@ class BaseSQAIRModule(snt.AbstractModule):
         steps_posterior = self._make_step_posterior(hidden_outputs.presence_prob, hidden_outputs.presence_logit)
         where_posterior = self._where_posterior(hidden_outputs.where_loc, hidden_outputs.where_scale)
         what_posterior = tfd.Normal(hidden_outputs.what_loc, hidden_outputs.what_scale)
+         #for dreg
+        #where_posterior = self.where_posterior(tf.stop_gradient(hidden_outputs.where_loc),tf.stop_gradient(hidden_outputs.where_scale))
+        #what_posterior = tfd.Normal(tf.stop_gradient(hidden_outputs.what_loc),tf.stop_gradient(hidden_outputs.what_scale)
+
 
         return what_posterior, where_posterior, steps_posterior
 
@@ -265,27 +269,90 @@ class Propagate(BaseSQAIRModule):
         #call prior 
         prior_stats, prior_rnn_hidden_state = self._prior(z_tm1, prior_state)
 
-
         #call ssm
+        hidden_outputs, num_steps, delta_what, delta_where = self._ssm(img, z_tm1, temporal_state)
 
         #compute log probs
-
+        hidden_outputs, log_probs = self._compute_log_probs(presence_tm1, hidden_outputs, prior_stats, delta_what,
+                                                            delta_where, sample_from_prior=sample_from_prior,
+                                                            do_generate=do_generate)
         #store results in outputs dictionary
-        outputs = orderedattrdict.AttrDict()
+        outputs = orderedattrdict.AttrDict(
+            prior_stats = prior_stats,
+            prior_state = prior_state,
+            hidden_outputs = hidden_outputs,
+            num_steps = num_steps,
+        )
+
+        outputs.update(hidden_outputs)
+        outputs.update(log_probs)
+        return outputs
+
 
         return outputs
 
     def _compute_log_probs(self, presence_tm1, hidden_outputs, prior_stats, delta_what,
                            delta_where, sample_from_prior=False, do_generate=False):
-        """Computes log probabilities, see Discovery class.
+     """Computes log probabilities, see Discovery class.
         """
 
+        presence = tf.squeeze(hidden_outputs.presence, -1)
+        presence_tm1 = tf.squeeze(presence_tm1, -1)
+        o = orderedattrdict.AttrDict()
 
-        return hidden_outputs, None
+        posteriors = self._make_posteriors(hidden_outputs)
+        priors = self._prior.make_distribs(prior_stats)
+
+        samples = [delta_what, delta_where, presence]
+        #if we have already trained the VAE, given the data we can sample from prior to generate the sequences
+        if sample_from_prior:
+
+            samples = [p.sample() for p in priors]
+            dg = tf.to_float(do_generate)
+            ndg = 1. - dg
+            hidden_outputs.what = dg * samples[0] + ndg * hidden_outputs.what
+            hidden_outputs.where = dg * samples[1] + ndg * hidden_outputs.where
+
+            pres = tf.to_float(tf.expand_dims(samples[2], -1))
+            hidden_outputs.presence = dg * pres + ndg * hidden_outputs.presence
+
+        #computing log probabilities for the posterior distribution of what where and presence latent variables
+        posterior_log_probs = [distrib.log_prob(sample) for (distrib, sample) in zip(posteriors, samples)]
+
+
+        samples = [hidden_outputs.what, hidden_outputs.where, presence]
+        #computing prior log probabilities for where what and presence samples we got from the inference part
+        prior_log_probs = [distrib.log_prob(sample) for (distrib, sample) in zip(priors, samples)]
+
+        #getting propogation probabilities by taking the probabilities only for the objects that were present at the
+        #previous timestep 
+        o.prop_prob = tf.exp(posterior_log_probs[-1]) * presence_tm1
+
+        #summing log probabilities along dimensions
+        for probs in (posterior_log_probs, prior_log_probs):
+
+            for i in xrange(2):
+
+                if probs[i].shape.ndims == 3:
+                    
+                    probs[i] = tf.reduce_sum(probs[i], -1)
+
+                probs[i] = probs[i] * presence_tm1 * presence
+
+            probs[-1] = tf.reduce_sum(probs[-1] * presence_tm1, -1)
+
+        #getting final q(approximate posterior)and p(prior) probabilities
+        o.q_z_given_x = self._reduce_prob(posterior_log_probs)
+        o.p_z = self._reduce_prob(prior_log_probs)
+
+        for i, k in enumerate('what where prop'.split()):
+            o['{}_log_prob'.format(k)] = posterior_log_probs[i]
+            o['{}_prior_log_prob'.format(k)] = prior_log_probs[i]
+
+        return hidden_outputs, o
 
     def _make_step_posterior(self, presence_prob, presence_logit):  # pylint disable=unused-variable
-        return None
-
+        return tfd.Bernoulli(logits=tf.squeeze(presence_logit, -1))
 
 class AbstractTimstepModule(snt.AbstractModule):
     """Abstract base-class for modules handling a single time-step of a sequence.
@@ -326,7 +393,21 @@ class AbstractTimstepModule(snt.AbstractModule):
     def _encode_latents(self, what, where, presence):
         """Encodes latent variables.
         """
-        return None
+        inpts = tf.concat((what, where), -1)
+
+        if self._relation_embedding:
+            def combinations(tensor):
+                tensor = tf.split(tensor, self._n_steps, -2)
+                tensor = itertools.combinations(tensor, 2)
+                tensor = [tf.concat(t, -1) for t in tensor]
+                tensor = tf.concat(tensor, -2)
+                return tensor
+
+            inpts = combinations(inpts)
+            presence = tf.reduce_prod(combinations(presence), -1, keep_dims=True)
+
+        features = snt.BatchApply(self._latent_encoder)(inpts) * presence
+        return tf.reduce_sum(features, -2)
 
 
 class PropagateOnlyTimestep(AbstractTimstepModule):
@@ -418,17 +499,29 @@ class SQAIRTimestep(AbstractTimstepModule):
         latents = self._choose_latents(batch_size, propogate_output, discover_output, highest_used_ids, prev_ids)
 
         #store into orderedattrdict.AttrDict as "outputs"
-        outputs = 
+        outputs = orderedattrdict.AttrDict(
+            hidden_outputs=hidden_outputs,
+            obj_ids=obj_ids,
+            z_t=z_t,
+            prop_prior_state=prop_prior_state,
+            ids=obj_ids,
+            highest_used_ids=highest_used_ids,
+            prop=prop_output,
+            disc=disc_output,
+            temporal_hidden_state=temporal_hidden_state,
+            presence_log_prob=prop_output.prop_log_prob + disc_output.num_step_log_prob,
+            p_z=disc_output.p_z + prop_output.p_z,
+            q_z_given_x=disc_output.q_z_given_x + prop_output.q_z_given_x
+        ) 
 
         #update the outputs with hidden outputs
-
+        outputs.update(hidden_outputs)
 
         #update number of steps
-
+        outputs.num_steps = tf.reduce_sum(tf.squeeze(outputs.presence, -1), -1)
 
         #return outputs
-
-        return None
+        return outputs
 
     def _propagate_and_discover(self, img, z_tm1, temporal_hidden_state, prop_prior_state,
                                 time_step, sample_from_prior, do_generate):
@@ -438,18 +531,23 @@ class SQAIRTimestep(AbstractTimstepModule):
         """
 
         # call propogate 
+        prop_output = self._propagate(img, z_tm1, temporal_hidden_state, prop_prior_state,
+                                      sample_from_prior, do_generate)
 
         # encode returned latents to make conditional inputs for discovery   algorithm 3 line 4
+        conditioning_from_prop = self._encode_latents(prop_output.what, prop_output.where, prop_output.presence)
 
-        # ...
+        discovery_inpt_img = img
 
+        prop_prior_step_logits = tf.squeeze(prop_output.prior_stats[-1], -1)
+        prop_prior_step_probs = (tf.nn.sigmoid(prop_prior_step_logits) - 0.5) / self._n_steps
+        expected_prop_prior_num_step = tf.reduce_sum(prop_prior_step_probs, axis=-1, keep_dims=True)
         # call discovery 
+        disc_output = self._discover(discovery_inpt_img, prop_output.num_steps, conditioning_from_prop, time_step,
+                                     expected_prop_prior_num_step, sample_from_prior, do_generate)
 
 
-
-
-
-        return None, None
+        return prop_output, disc_output
 
     def _choose_latents(self, batch_size, prop_output, disc_output, highest_used_ids, prev_ids):
         """Picks outputs of propagation and discovery based on the presence values.
@@ -481,16 +579,42 @@ class SQAIRTimestep(AbstractTimstepModule):
 
         # extract temporal prop and prior states from prop outputs and append newly initialised states
         # for any discovered objects
+        prop_temporal_state = prop_output.temporal_state
+        del prop_output.temporal_state
+        prop_and_disc_temporal_state = nested.concat([prop_temporal_state, self.initial_temporal_state()], -2)
+
+        prop_prior_rnn_state = prop_output.prior_state
+        prop_and_disc_prior_hidden_states =\
+            nested.concat([prop_prior_rnn_state, self.initial_prior_state(batch_size)], -2)
 
         # concat prop and disc outputs along the object axis, in that order
-       
+        outputs = [o.hidden_outputs.values() for o in (prop_output, disc_output)]
+        hidden_outputs = [tf.concat((p, d), -2) for p, d in zip(*outputs)]
+        hidden_outputs = DiscoveryCore.outputs_by_name(hidden_outputs, stack=False)
+
         # compute object ids based on ordering; discovered objects get new ids and propagated get the same as at the
         # previous timestep
-        
+        highest_used_ids, new_obj_id = index.compute_object_ids(highest_used_ids, prev_ids,
+                                                                prop_output.presence, disc_output.presence)
         # gather all variables that are to be shuffled according to presence: vars for present objects get shifted
         # to the beginning and for absent ones to the end
-       
-        # merge, partition, split to avoid partitioning each vec separately
-       
-  
-        return None, None, None, None, None, None, None
+        variables_to_partition = list(hidden_outputs.values()) + \
+            [
+                new_obj_id,
+                prop_and_disc_prior_hidden_states,
+                prop_and_disc_temporal_state,
+            ]
+
+        # # merge, partition, split to avoid partitioning each vec separately
+        variables_to_partition = index.select_present_nested(variables_to_partition,
+                                                             tf.squeeze(hidden_outputs.presence, -1), batch_size)
+        variables_to_partition = nested.map_nested(lambda x: x[:, :self._n_steps], variables_to_partition)
+
+        n_hiddens = len(hidden_outputs)
+        hidden_outputs, (obj_ids, prop_prior_rnn_state, temporal_state)\
+            = variables_to_partition[:n_hiddens], variables_to_partition[n_hiddens:]
+
+        hidden_outputs = DiscoveryCore.outputs_by_name(hidden_outputs, stack=False)
+        z_t = [hidden_outputs.what, hidden_outputs.where, hidden_outputs.presence, hidden_outputs.presence_logit]
+
+        return hidden_outputs, z_t, obj_ids, prop_prior_rnn_state, temporal_state, highest_used_ids

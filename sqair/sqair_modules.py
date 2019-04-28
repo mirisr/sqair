@@ -56,6 +56,9 @@ class BaseSQAIRModule(snt.AbstractModule):
         steps_posterior = self._make_step_posterior(hidden_outputs.presence_prob, hidden_outputs.presence_logit)
         where_posterior = self._where_posterior(hidden_outputs.where_loc, hidden_outputs.where_scale)
         what_posterior = tfd.Normal(hidden_outputs.what_loc, hidden_outputs.what_scale)
+        #for dreg
+        #where_posterior = self.where_posterior(tf.stop_gradient(hidden_outputs.where_loc),tf.stop_gradient(hidden_outputs.where_scale))
+        #what_posterior = tfd.Normal(tf.stop_gradient(hidden_outputs.what_loc),tf.stop_gradient(hidden_outputs.what_scale)
 
         return what_posterior, where_posterior, steps_posterior
 
@@ -264,8 +267,8 @@ class Propagate(BaseSQAIRModule):
 
         hidden_outputs, num_steps, delta_what, delta_where = self._ssm(img, z_tm1, temporal_state)
         hidden_outputs, log_probs = self._compute_log_probs(presence_tm1, hidden_outputs, prior_stats, delta_what,
-                                                            delta_where, sample_from_prior=sample_from_prior,
-                                                            do_generate=do_generate)
+                                                            delta_where, sample_from_prior = sample_from_prior,
+                                                            do_generate = do_generate)
 
         outputs = orderedattrdict.AttrDict(
             prior_stats = prior_stats,
@@ -291,7 +294,9 @@ class Propagate(BaseSQAIRModule):
         priors = self._prior.make_distribs(prior_stats)
 
         samples = [delta_what, delta_where, presence]
+        #if we have already trained the VAE, given the data we can sample from prior to generate the sequences
         if sample_from_prior:
+
             samples = [p.sample() for p in priors]
             dg = tf.to_float(do_generate)
             ndg = 1. - dg
@@ -301,15 +306,24 @@ class Propagate(BaseSQAIRModule):
             pres = tf.to_float(tf.expand_dims(samples[2], -1))
             hidden_outputs.presence = dg * pres + ndg * hidden_outputs.presence
 
+        #computing log probabilities for the posterior distribution of what where and presence latent variables
         posterior_log_probs = [distrib.log_prob(sample) for (distrib, sample) in zip(posteriors, samples)]
 
+
         samples = [hidden_outputs.what, hidden_outputs.where, presence]
+        #computing prior log probabilities for where what and presence samples we got from the inference part
         prior_log_probs = [distrib.log_prob(sample) for (distrib, sample) in zip(priors, samples)]
+
+        #getting propogation probabilities by taking the probabilities only for the objects that were present at the
+        #previous timestep 
         o.prop_prob = tf.exp(posterior_log_probs[-1]) * presence_tm1
 
         for probs in (posterior_log_probs, prior_log_probs):
+
             for i in xrange(2):
+
                 if probs[i].shape.ndims == 3:
+                    
                     probs[i] = tf.reduce_sum(probs[i], -1)
 
                 probs[i] = probs[i] * presence_tm1 * presence

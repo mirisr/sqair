@@ -245,6 +245,7 @@ def make_logger(model, sess, writer, train_tensor, num_train_batches, test_tenso
     exprs = {
         'vae': model.elbo_vae,
         'iwae': model.elbo_iwae,
+        #'dreg': model.elbo_dreg,
         'steps': model.num_steps,
         'steps_acc': model.num_step_accuracy,
         'ess': model.ess,

@@ -267,10 +267,6 @@ class PropagationCore(BaseSQAIRCore):
             #specifying distribution for where latent variables
             self._where_distrib = AffineDiagNormal()
 
-
-
-
-      
     @property
     def output_size(self):
         return [
@@ -291,15 +287,127 @@ class PropagationCore(BaseSQAIRCore):
     def _build(self, (z_tm1, temporal_hidden_state), state):
         """Input is unused; it's only to force a maximum number of steps"""
         # same object, previous timestep
+
+        #splitting z_tm1 into what where and presense along with the presense logits
+        #getting the object from the previous time step
+        what_tm1, where_tm1, presence_tm1, presence_logit_tm1 = z_tm1
+        #getting numpy list of flattened temporal_hidden_state
+        temporal_state = nest.flatten(temporal_hidden_state)[-1]
+
+        #initialize another object itself,and  latent variables for another object at the current time step
+        img_flat, what_km1, where_km1, presence_km1, hidden state = state
         
-        return None, None
+        #transforming vector of image pixels into matrix of pixels
+        img = tf.reshape(img_flat, (-1,) + tuple(self._img_size))
+
+        with tf.variable_scope('rnn_inpt'):
+            #achieving the bias value that we add to where latent variable from the previous time step in order to get new 
+            #proposal where latent variable for the current step
+            where_bias = MLP(128, n_out=4)(temporal_state) * .1
+            #extracting and encoding proposal glimpse(includes spatial transformer inside)
+            what_distrib = self._glimpse_encoder(img, where_tm1 + where_bias, mask_inpt=temporal_state)[0]
+            #taking the mean of what dustribution for the object which corresponds to our object
+            rnn_inpt = what_distrib.loc
+            #constructing the input to relational RNN
+            rnn_inpt = [
+                rnn_inpt,                                             # img
+                what_km1, where_km1, presence_km1,                    # explaining away
+                what_tm1, where_tm1, presence_tm1, temporal_state     # previous state
+            ]
+            #making tensor from array
+            rnn_inpt = tf.concat(rnn_inpt, -1)
+            #getting the output from relational RNN
+            hidden_output, hidden_state = self._cell(rnn_inpt, hidden_state)
+
+        #sample latent variable 'where' for the current time step using 'where' from the previous time step and weights from 
+        #relational rnn    
+        with tf.variable_scope('where'):
+            where, where_sample, where_loc, where_scale = self._compute_where(where_tm1, hidden_output, temporal_state)
+
+        #sample latent variable 'what' for the current time step using 'what' from the previous time step and weights from 
+        #relational and temporal rnns alonf with encoded glimpse of the object 
+        with tf.variable_scope('what'):
+            what, what_sample, what_loc, what_scale, temporal_hidden_state\
+                = self._compute_what(img, what_tm1, where, hidden_output, temporal_hidden_state, temporal_state)
+
+        #compute the presense of the oobject for the current time step using
+        #presence from the previous time step, 'what' and 'where' latent variable from the current timestep
+        #and weights from relational and temporal RNNs
+        with tf.variable_scope('presence'):
+            presence, presence_prob, presence_logit \
+                = self._compute_presence(presence_tm1, presence_logit_tm1, hidden_output, temporal_state, what)
+
+        output = [what, what_sample, what_loc, what_scale, where, where_sample, where_loc, where_scale,
+            presence_prob, presence, presence_logit, temporal_hidden_state]
+        
+        new_state = [img_flat, what, where, presence, hidden_state]
+
+        return output, new_state
+
 
     def _compute_where(self, where_tm1, hidden_output, temporal_state):
 
+        #create input for transform estimator
+        #that produces parameters for where distribution based on the 
+        #output weights from the relational rnn, 
+        #temporal hidden state from the previous time step
+        # and 'where' latent variable from the previous time step
+        inpt = tf.concat((hidden_output, where_tm1, temporal_state), -1)
+        #transforming them in order to get parameters for the where distribution
+        loc, scale = self._transform_estimator(inpt)
+
+        #update mean variable for the distribution based on the 'where' latent variable from the previous  timestep and
+        #scaled mean we got from transform estimator 
+        loc = where_tm1 + self._where_update_scale * loc
         
-        return None, None, None
+        #making sure that scale is greater than 0
+        scale = tf.nn.softplus(scale - 1.) + 1e-2
+
+        #getting 'where dstribution'
+        where_distrib = self._where_distrib(loc, scale)
+        #sampling 'where'
+        where_sample = where_distrib.sample()
+
+        where = where_sample
+
+        return where, where_sample, loc, scale
+
+        
 
     def _compute_what(self, img, what_tm1, where, hidden_output, temporal_hidden_state, temporal_state):
+
+        # takes the input image, takes the glimpse based on the where latent variable
+        #and outputs the parameters for what distribution
+        what_distrib = self._glimpse_encoder(img, where, mask_inpt = temporal_state)[0]
+        #splitting the parameters into mean and covariance
+        loc, scale = what_distrib.loc, what_distrib.scale
+        #concatenating the output from ST(loc, scale) with output from relational RNN ant
+        #where latent variable from current timestep
+        inpt = tf.concat((hidden_output, where, loc, scale), -1)
+        
+        #applying temporal RNN and getting the weights and hidden state
+        temporal_output, temporal_hidden_state = self._temporal_cell(inpt, temporal_hidden_state)
+
+        n_dim = int(what_tm1.shape[-1])
+
+        temporal_distrib = GaussianFromParamVec(n_dim)(temporal_output)
+
+        remember_bias = {'b': tf.constant_initializer(1.)}
+        gates = Nonlinear(n_dim * 3, tf.nn.sigmoid, remember_bias)(temporal_output)
+
+        gates *= .9999
+        forget_gate, input_gate, temporal_gate = tf.split(gates, 3, -1)
+
+        #constructing what distribution
+        what_distrib = tfd.Normal(
+            loc=forget_gate * what_tm1 + (1. - input_gate) * loc + (1. - temporal_gate) * temporal_distrib.loc,
+            scale=(1. - input_gate) * scale + (1. - temporal_gate) * temporal_distrib.scale
+        )
+        #sampling variable 'what'
+        what_sample = what_distrib.sample()
+        what = what_sample
+
+        return what, what_sample, what_distrib.loc, what_distrib.scale, temporal_hidden_state
+
         
 
-        return None, None, None, None, None
